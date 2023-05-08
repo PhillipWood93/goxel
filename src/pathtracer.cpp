@@ -209,7 +209,7 @@ void stop_render(vector<future<void>>& futures,
 */
 
 
-static int sync_volume(pathtracer_t *pt, int w, int h, bool force)
+static int sync_volume(pathtracer_t *pt, bool force)
 {
     uint32_t key = 0, k;
     volume_iterator_t iter;
@@ -229,8 +229,6 @@ static int sync_volume(pathtracer_t *pt, int w, int h, bool force)
         key = XXH32(&i, sizeof(i), key);
     }
     key = XXH32(goxel.back_color, sizeof(goxel.back_color), key);
-    key = XXH32(&w, sizeof(w), key);
-    key = XXH32(&h, sizeof(h), key);
     key = XXH32(&goxel.rend.settings.effects,
                 sizeof(goxel.rend.settings.effects), key);
     key = XXH32(&pt->floor.type, sizeof(pt->floor.type), key);
@@ -328,14 +326,14 @@ static int sync_floor(pathtracer_t *pt, bool force)
     return changed;
 }
 
-static int sync_camera(pathtracer_t *pt, int w, int h,
+static int sync_camera(pathtracer_t *pt,
                        const float viewport[4],
                        const camera_t *camera, bool force)
 {
     pathtracer_internal_t *p = pt->p;
     camera_data *cam;
     uint64_t key;
-    float m[4][4], aspect, viewport_aspect, fovy, distance;
+    float m[4][4], aspect, fovy, distance;
 
     if (p->scene.cameras.empty()) {
         add_camera(p->scene);
@@ -344,8 +342,8 @@ static int sync_camera(pathtracer_t *pt, int w, int h,
 
     key = XXH32(camera->view_mat, sizeof(camera->view_mat), 0);
     key = XXH32(camera->proj_mat, sizeof(camera->proj_mat), key);
-    key = XXH32(&w, sizeof(w), key);
-    key = XXH32(&h, sizeof(h), key);
+    key = XXH32(&pt->w, sizeof(pt->w), key);
+    key = XXH32(&pt->h, sizeof(pt->h), key);
     if (!force && key == p->camera_key) return 0;
     LOG_D("Add camera");
     p->camera_key = key;
@@ -361,16 +359,14 @@ static int sync_camera(pathtracer_t *pt, int w, int h,
                          {m[1][0], m[1][1], m[1][2]},
                          {m[2][0], m[2][1], m[2][2]},
                          {m[3][0], m[3][1], m[3][2]}};
-    aspect = (float)w / h;
+    aspect = (float)pt->w / pt->h;
     if (!camera->ortho) {
-        viewport_aspect = viewport[2] / viewport[3];
         fovy = camera->fovy / 180 * M_PI;
-        if (viewport_aspect < aspect) {
-            fovy *= viewport_aspect / aspect;
-        }
         cam->focus = camera->dist;
         distance = cam->film / (2 * tanf(fovy / 2));
+        if (aspect > 1) distance /= aspect;
         cam->lens = cam->focus * distance / (cam->focus + distance);
+        cam->aspect = aspect;
     } else {
         cam->orthographic = true;
         cam->film = viewport[2];
@@ -550,19 +546,18 @@ static void start_render(
 }
 */
 
-static int sync(pathtracer_t *pt, int w, int h, const float viewport[4],
-                bool force)
+static int sync(pathtracer_t *pt, const float viewport[4], bool force)
 {
     pathtracer_internal_t *p = pt->p;
     int changes = 0;
 
     if (force) changes |= CHANGE_FORCE;
 
-    changes |= sync_volume(pt, w, h, changes);
+    changes |= sync_volume(pt, changes);
     changes |= sync_floor(pt, changes);
     changes |= sync_world(pt, changes);
     changes |= sync_light(pt, changes);
-    changes |= sync_camera(pt, w, h, viewport,
+    changes |= sync_camera(pt, viewport,
                            goxel.image->active_camera, changes);
     changes |= sync_options(pt, changes);
 
@@ -588,7 +583,7 @@ static int sync(pathtracer_t *pt, int w, int h, const float viewport[4],
             p->trace_prms.sampler = trace_params::sampler_type::eyelight;
         }
         */
-        p->params.resolution = max(w, h);
+        p->params.resolution = max(pt->w, pt->h);
         // p->image = make_image(w, h, false);
         // p->display = make_image(w, h, false);
         trace_cancel(p->context);
@@ -676,7 +671,7 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
     }
     p = pt->p;
     p->params.resolution = max(pt->w, pt->h);
-    changes = sync(pt, pt->w, pt->h, viewport, pt->force_restart);
+    changes = sync(pt, viewport, pt->force_restart);
     pt->force_restart = false;
     // assert(p->display.width == pt->w);
     // assert(p->display.height == pt->h);
