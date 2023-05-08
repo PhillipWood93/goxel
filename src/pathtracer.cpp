@@ -78,7 +78,6 @@ struct pathtracer_internal {
     scene_data scene;
     trace_bvh bvh;
     trace_context context;
-    image_data preview;
 
     // image_data image;
     // image_data display;
@@ -640,15 +639,16 @@ static void make_preview(pathtracer_t *pt)
 }
 */
 
-static void update_preview(pathtracer_t *pt)
+static void update_preview(pathtracer_t *pt, const image_data &img)
 {
-    int i, j;
-    pathtracer_internal_t *p = pt->p;
+    int i, j, pi, pj;
     vec4b v;
 
     for (i = 0; i < pt->h; i++) {
         for (j = 0; j < pt->w; j++) {
-            v = float_to_byte(p->preview[{j, i}]);
+            pi = i * img.height / pt->h;
+            pj = j * img.width / pt->w;
+            v = float_to_byte(img[{pj, pi}]);
             memcpy(&pt->buf[(i * pt->w + j) * 4], &v, 4);
         }
     }
@@ -667,6 +667,7 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
     pathtracer_internal_t *p;
     int changes;
     vec4b v;
+    image_data image;
 
     if (!pt->p) {
         pt->p = new pathtracer_internal_t {
@@ -680,24 +681,31 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
     // assert(p->display.width == pt->w);
     // assert(p->display.height == pt->h);
 
-    if (p->preview.width != pt->w || p->preview.height != pt->h) {
-        p->preview = make_image(pt->w, pt->h, true);
+    /*
+    if (p->image.width != pt->w || p->image.height != pt->h) {
+        LOG_D("Create image %d %d", pt->w, pt->h);
+        p->image = make_image(pt->w, pt->h, true);
     }
+    */
 
     if (changes) {
         LOG_D("Start tracing");
         pt->status = PT_RUNNING;
         trace_cancel(p->context);
         p->state = make_trace_state(p->scene, p->trace_prms);
-        trace_preview(p->preview, p->context, p->state, p->scene, p->bvh,
+
+        image = make_image(p->state.width, p->state.height, true);
+        trace_preview(image, p->context, p->state, p->scene, p->bvh,
                       p->lights, p->trace_prms);
+        update_preview(pt, image);
+
         trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
                     p->trace_prms);
     }
 
     if (p->context.done) {
-        get_image(p->preview, p->state);
-        update_preview(pt);
+        image = get_image(p->state);
+        update_preview(pt, image);
         trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
                     p->trace_prms);
     }
