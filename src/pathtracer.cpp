@@ -78,9 +78,11 @@ struct pathtracer_internal {
     scene_data scene;
     trace_bvh bvh;
     trace_context context;
+    image_data preview;
 
-    image_data image;
-    image_data display;
+    // image_data image;
+    // image_data display;
+
     trace_state state;
     trace_lights lights;
     trace_params trace_prms;
@@ -349,8 +351,8 @@ static int sync_camera(pathtracer_t *pt, int w, int h,
     LOG_D("Add camera");
     p->camera_key = key;
     trace_cancel(p->context);
-    p->state = make_trace_state(p->scene, p->trace_prms);
     /*
+    p->state = make_trace_state(p->scene, p->trace_prms);
     stop_render(p->trace_futures, p->trace_queue, p->trace_queuem,
                 &p->trace_stop);
     */
@@ -395,13 +397,11 @@ static int sync_world(pathtracer_t *pt, bool force)
     key = XXH32(&pt->world.energy, sizeof(pt->world.energy), key);
     key = XXH32(&pt->world.color, sizeof(pt->world.color), key);
     if (!force && key == p->world_key) return 0;
+
+    return 0;
     LOG_D("Add env");
     p->world_key = key;
     trace_cancel(p->context);
-    /*
-    stop_render(p->trace_futures, p->trace_queue, p->trace_queuem,
-                &p->trace_stop);
-    */
 
     texture = getdefault(p->scene.textures, p->scene.texture_names, "<world>");
     // texture->uri = "textures/uniform.hdr";
@@ -486,8 +486,8 @@ static int sync_options(pathtracer_t *pt, bool force)
     LOG_D("Sync options");
     p->options_key = key;
     trace_cancel(p->context);
-    p->state = make_trace_state(p->scene, p->trace_prms);
     /*
+    p->state = make_trace_state(p->scene, p->trace_prms);
     stop_render(p->trace_futures, p->trace_queue, p->trace_queuem,
                 &p->trace_stop);
     */
@@ -590,10 +590,10 @@ static int sync(pathtracer_t *pt, int w, int h, const float viewport[4],
         }
         */
         p->trace_prms.resolution = max(w, h);
-        p->image = make_image(w, h, false);
-        p->display = make_image(w, h, false);
+        // p->image = make_image(w, h, false);
+        // p->display = make_image(w, h, false);
         trace_cancel(p->context);
-        p->state = make_trace_state(p->scene, p->trace_prms);
+        // p->state = make_trace_state(p->scene, p->trace_prms);
 
         /*
         stop_render(p->trace_futures, p->trace_queue, p->trace_queuem,
@@ -640,6 +640,20 @@ static void make_preview(pathtracer_t *pt)
 }
 */
 
+static void update_preview(pathtracer_t *pt)
+{
+    int i, j;
+    pathtracer_internal_t *p = pt->p;
+    vec4b v;
+
+    for (i = 0; i < pt->h; i++) {
+        for (j = 0; j < pt->w; j++) {
+            v = float_to_byte(p->preview[{j, i}]);
+            memcpy(&pt->buf[(i * pt->w + j) * 4], &v, 4);
+        }
+    }
+}
+
 /*
  * Function: pathtracer_iter
  * Iter the rendering process of the current volume.
@@ -663,10 +677,33 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
     p->trace_prms.resolution = max(pt->w, pt->h);
     changes = sync(pt, pt->w, pt->h, viewport, pt->force_restart);
     pt->force_restart = false;
-    assert(p->display.width == pt->w);
-    assert(p->display.height == pt->h);
-    if (changes) pt->status = PT_RUNNING;
+    // assert(p->display.width == pt->w);
+    // assert(p->display.height == pt->h);
 
+    if (p->preview.width != pt->w || p->preview.height != pt->h) {
+        p->preview = make_image(pt->w, pt->h, true);
+    }
+
+    if (changes) {
+        LOG_D("Start tracing");
+        pt->status = PT_RUNNING;
+        trace_cancel(p->context);
+        p->state = make_trace_state(p->scene, p->trace_prms);
+        trace_preview(p->preview, p->context, p->state, p->scene, p->bvh,
+                      p->lights, p->trace_prms);
+        trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
+                    p->trace_prms);
+    }
+
+    if (p->context.done) {
+        get_image(p->preview, p->state);
+        update_preview(pt);
+        trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
+                    p->trace_prms);
+    }
+
+
+    /*
     if (changes & CHANGE_CAMERA) {
         // make_preview(pt);
         LOG_D("Start trace");
@@ -677,6 +714,7 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
         pt->progress = 0;
         return;
     }
+    */
 
     /*
     while (try_pop(p->trace_queue, p->trace_queuem, region)) {
