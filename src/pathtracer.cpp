@@ -84,7 +84,7 @@ struct pathtracer_internal {
 
     trace_state state;
     trace_lights lights;
-    trace_params trace_prms;
+    trace_params params;
     float exposure;
 
     int trace_sample;
@@ -490,8 +490,8 @@ static int sync_options(pathtracer_t *pt, bool force)
     stop_render(p->trace_futures, p->trace_queue, p->trace_queuem,
                 &p->trace_stop);
     */
-    p->trace_prms.samples = pt->num_samples;
-    p->trace_prms.resolution = max(pt->w, pt->h);
+    p->params.samples = pt->num_samples;
+    p->params.resolution = max(pt->w, pt->h);
     return CHANGE_OPTIONS;
 }
 
@@ -574,11 +574,11 @@ static int sync(pathtracer_t *pt, int w, int h, const float viewport[4],
     // Update BVH if needed.
     if (changes & (CHANGE_VOLUME | CHANGE_LIGHT | CHANGE_FLOOR)) {
         LOG_D("Create bvh");
-        p->bvh = make_trace_bvh(p->scene, p->trace_prms);
+        p->bvh = make_trace_bvh(p->scene, p->params);
     }
     if (changes & (CHANGE_LIGHT | CHANGE_MATERIAL)) {
         LOG_D("Create lights");
-        p->lights = make_trace_lights(p->scene, p->trace_prms);
+        p->lights = make_trace_lights(p->scene, p->params);
     }
 
     if (changes) {
@@ -588,7 +588,7 @@ static int sync(pathtracer_t *pt, int w, int h, const float viewport[4],
             p->trace_prms.sampler = trace_params::sampler_type::eyelight;
         }
         */
-        p->trace_prms.resolution = max(w, h);
+        p->params.resolution = max(w, h);
         // p->image = make_image(w, h, false);
         // p->display = make_image(w, h, false);
         trace_cancel(p->context);
@@ -675,7 +675,7 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
         };
     }
     p = pt->p;
-    p->trace_prms.resolution = max(pt->w, pt->h);
+    p->params.resolution = max(pt->w, pt->h);
     changes = sync(pt, pt->w, pt->h, viewport, pt->force_restart);
     pt->force_restart = false;
     // assert(p->display.width == pt->w);
@@ -692,22 +692,22 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
         LOG_D("Start tracing");
         pt->status = PT_RUNNING;
         trace_cancel(p->context);
-        p->state = make_trace_state(p->scene, p->trace_prms);
+        p->state = make_trace_state(p->scene, p->params);
 
         image = make_image(p->state.width, p->state.height, true);
         trace_preview(image, p->context, p->state, p->scene, p->bvh,
-                      p->lights, p->trace_prms);
+                      p->lights, p->params);
         update_preview(pt, image);
 
         trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
-                    p->trace_prms);
+                    p->params);
     }
 
     if (p->context.done) {
         image = get_image(p->state);
         update_preview(pt, image);
         trace_start(p->context, p->state, p->scene, p->bvh, p->lights,
-                    p->trace_prms);
+                    p->params);
     }
 
 
@@ -736,10 +736,10 @@ void pathtracer_iter(pathtracer_t *pt, const float viewport[4])
         if (size >= p->image.size().x * p->image.size().y) break;
     }
     */
-    pt->progress = (float)p->trace_sample / p->trace_prms.samples;
+    pt->progress = (float)p->trace_sample / p->params.samples;
 
     if (pt->status != PT_FINISHED &&
-            p->trace_sample == p->trace_prms.samples) {
+            p->trace_sample == p->params.samples) {
         pt->status = PT_FINISHED;
     }
 }
