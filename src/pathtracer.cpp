@@ -390,6 +390,7 @@ static int sync_world(pathtracer_t *pt, bool force)
     environment_data *environment;
     float turbidity = 3;
     bool has_sun = false;
+    image_data image;
     vec4f color;
 
     key = XXH32(&pt->world.type, sizeof(pt->world.type), key);
@@ -397,13 +398,11 @@ static int sync_world(pathtracer_t *pt, bool force)
     key = XXH32(&pt->world.color, sizeof(pt->world.color), key);
     if (!force && key == p->world_key) return 0;
 
-    return 0;
     LOG_D("Add env");
     p->world_key = key;
     trace_cancel(p->context);
 
     texture = getdefault(p->scene.textures, p->scene.texture_names, "<world>");
-    // texture->uri = "textures/uniform.hdr";
 
     color[0] = pt->world.color[0] / 255.f;
     color[1] = pt->world.color[1] / 255.f;
@@ -419,7 +418,8 @@ static int sync_world(pathtracer_t *pt, bool force)
                     1.0f, 0, {color.x, color.y, color.z}));
         break;
     case PT_WORLD_UNIFORM:
-        // texture->hdr = {{64, 64}, color};
+        image = image_data {1, 1, true, vector<vec4f>(1, color)};
+        *texture = image_to_texture(image);
         break;
     }
     environment = getdefault(p->scene.environments, p->scene.environment_names,
